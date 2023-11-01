@@ -4,25 +4,21 @@
 #For the various contributions in making this script awesome
 #
 # get grpcurl here: https://github.com/fullstorydev/grpcurl/releases
-$host.ui.RawUI.WindowTitle = $MyInvocation.MyCommand.Name
+$host.ui.RawUI.WindowTitle = "SM-Monitor"
 function main {
     Clear-Host
     Write-Host "Loading ..." -NoNewline -ForegroundColor Cyan
-    $grpcurl = ".\grpcurl.exe"
-
+    $grpcurl = "grpcurl.exe"
+	$GenesisDate = [datetime]"07-14-2023 15:00"
     ############## Start Edit  ##############
     #Set your Email for notifications
-    $emailEnable = "False" #True to enable email notification, False to disable
-    $myEmail = "my@email.com"
+    $emailEnable = "True" #True to enable email notification, False to disable
+    $myEmail = ""
     
     $list = @(
-        @{ info = "Smapp"; host = "192.168.1.6"; port = 9092; port2 = 9093; }
-        @{ info = "smh11"; host = "192.168.1.6"; port = 9112; port2 = 9113; }
-        #@{ info = "smh12"; host = "192.168.1.10"; port = 9122; port2 = 9123; }
-        #@{ info = "smh21"; host = "192.168.1.7"; port = 9212; port2 = 9213; }
-        #@{ info = "smh22"; host = "192.168.1.7"; port = 9222; port2 = 9223; }
-        #@{ info = "smh31"; host = "192.168.1.8"; port = 9312; port2 = 9313; }
-        #@{ info = "smh32"; host = "192.168.1.8"; port = 9322; port2 = 9323; }
+        @{ info = "N225-1"; host = "192.168.1.225";  port = 9092; port2 = 9093; }
+        @{ info = "N225-2"; host = "192.168.1.225";  port = 9292; port2 = 9293; }
+	
     )
     ############## Finish Edit ##############
 
@@ -34,13 +30,13 @@ function main {
     # Colors: Black, Blue, Cyan, DarkBlue, DarkCyan, DarkGray, DarkGreen, DarkMagenta, DarkRed, DarkYellow, Gray, Green, Magenta, Red, White, Yellow
     $columnRules = @(
         @{ Column = "Info"; Value = "*"; ForegroundColor = "Cyan"; BackgroundColor = "Black" },
-        @{ Column = "SmesherID"; Value = "*"; ForegroundColor = "Yellow"; BackgroundColor = "Black" },
+        @{ Column = "SID"; Value = "*"; ForegroundColor = "Yellow"; BackgroundColor = "Black" },
         @{ Column = "Host"; Value = "*"; ForegroundColor = "White"; BackgroundColor = "Black" },
         @{ Column = "Port"; ForegroundColor = "White"; BackgroundColor = "Black" },
-        @{ Column = "Peers"; Value = "*"; ForegroundColor = "DarkCyan"; BackgroundColor = "Black" },
-        @{ Column = "Peers"; Value = "0"; ForegroundColor = "DarkGray"; BackgroundColor = "Black" },
+        @{ Column = "PRs"; Value = "*"; ForegroundColor = "DarkCyan"; BackgroundColor = "Black" },
+        @{ Column = "PRs"; Value = "0"; ForegroundColor = "DarkGray"; BackgroundColor = "Black" },
         @{ Column = "SU"; Value = "*"; ForegroundColor = "Yellow"; BackgroundColor = "Black" },
-        @{ Column = "SizeTiB"; Value = "*"; ForegroundColor = "White"; BackgroundColor = "Black" },
+        @{ Column = "SzTiB"; Value = "*"; ForegroundColor = "White"; BackgroundColor = "Black" },
         @{ Column = "Synced"; Value = "True"; ForegroundColor = "Green"; BackgroundColor = "Black" },
         @{ Column = "Synced"; Value = "False"; ForegroundColor = "DarkRed"; BackgroundColor = "Black" },
         @{ Column = "Synced"; Value = "Offline"; ForegroundColor = "DarkGray"; BackgroundColor = "Black" },
@@ -51,7 +47,15 @@ function main {
         @{ Column = "Smeshing"; Value = "*"; ForegroundColor = "Yellow"; BackgroundColor = "Black" },
         @{ Column = "Smeshing"; Value = "True"; ForegroundColor = "Green"; BackgroundColor = "Black" },
         @{ Column = "Smeshing"; Value = "False"; ForegroundColor = "DarkRed"; BackgroundColor = "Black" },
-        @{ Column = "Smeshing"; Value = "Offline"; ForegroundColor = "DarkGray"; BackgroundColor = "Black" }
+        @{ Column = "Smeshing"; Value = "Offline"; ForegroundColor = "DarkGray"; BackgroundColor = "Black" },
+	@{ Column = "Rewards"; Value = "*"; ForegroundColor = "DarkCyan"; BackgroundColor = "Black" },
+	@{ Column = "Rewards"; Value = "0"; ForegroundColor = "DarkGray"; BackgroundColor = "Black" },
+	@{ Column = "FProof"; Value = "*"; ForegroundColor = "DarkRed"; BackgroundColor = "Black" },
+        @{ Column = "FProof"; Value = "True"; ForegroundColor = "Green"; BackgroundColor = "Black" },
+	@{ Column = "FProof"; Value = "Idle"; ForegroundColor = "White"; BackgroundColor = "Black" },
+	@{ Column = "Registered"; Value = "*"; ForegroundColor = "DarkRed"; BackgroundColor = "Black" },
+	@{ Column = "Registered"; Value = "Idle"; ForegroundColor = "White"; BackgroundColor = "Black" },
+        @{ Column = "Registered"; Value = "True"; ForegroundColor = "Green"; BackgroundColor = "Black" }
     )
 		
     if ($null -eq $gitVersion) {
@@ -68,6 +72,10 @@ function main {
         $object = @()
         $resultsNodeHighestATX = $null
         $epoch = $null
+	$totalsu = 0
+	$totalrw = 0
+	$Body = $null
+	$offlineNodes = $null
 
         foreach ($node in $list) {
             Write-Host  " $($node.info)" -NoNewline -ForegroundColor Cyan
@@ -87,7 +95,6 @@ function main {
                 $node.online = "True"
                 if ($status.isSynced) {
                     $node.synced = "True"
-                    $node.emailsent = ""
                 }
                 else { $node.synced = "False" }
                 $node.connectedPeers = $status.connectedPeers
@@ -129,7 +136,34 @@ function main {
                         $node.smeshing = "$($percent)%"
                     }
                 }
-        
+		$CurrentDate = Get-Date
+		$NextEpoch = $GenesisDate.AddDays(($epoch.number + 1) * 14)
+		$NextProofingWindowStarts = $NextEpoch.AddDays(-4.5)
+		$NextSubmitATX = $NextEpoch.AddDays(-4-(1/24))
+		$rewards = $null
+		$findproof = $null
+		$reg = $null
+		$eventstream = (Invoke-Expression ("$($grpcurl) --plaintext -max-time 3 $($node.host):$($node.port2) spacemesh.v1.AdminService.EventsStream")) 2>$null
+		echo '[' > json.txt
+		echo $eventstream >> json.txt
+		echo ']' >> json.txt
+		$FilePath = "json.txt"
+		(Get-Content -Raw -Path $FilePath) -replace '\r\n','' | Set-Content -Path $FilePath
+		(Get-Content -Raw -Path $FilePath) -replace '}{','},{' | Set-Content -Path $FilePath
+		$jsonObject = Get-Content -Path $FilePath | Out-String | ConvertFrom-JSON
+                $rewards = (($jsonObject.eligibilities | Where-Object {$_.epoch -eq $epoch.number}).eligibilities | measure).Count
+		$findproof = ($jsonObject.poetWaitRound)
+		$reg = ($jsonObject.poetWaitProof)
+		if ($null -ne $rewards){$node.rewards = $rewards}
+		if (($CurrentDate -gt $NextProofingWindowStarts) -and ($CurrentDate -lt $NextEpoch)){
+		if ($findproof.current -eq $epoch.number) {$node.findproof = "True"} else { $node.findproof = "False" }
+		if ($reg.publish -eq $epoch.number + 1) {$node.reg = "True"} else { $node.reg = "False" }
+			}
+			else {
+				$node.findproof = "Idle"
+				$node.reg = "Idle"
+			}
+				        
                 $publicKey = $null
                 $publicKey = ((Invoke-Expression ("$($grpcurl) --plaintext -max-time 3 $($node.host):$($node.port2) spacemesh.v1.SmesherService.SmesherID")) | ConvertFrom-Json).publicKey 2>$null
         
@@ -146,36 +180,48 @@ function main {
                        
             $o = [PSCustomObject]@{
                 Info      = $node.info
-                SmesherID = $node.key
+                SID = $node.key
                 Host      = $node.host
                 Port      = $node.port
-                Peers     = $node.connectedPeers
+                PRs     = $node.connectedPeers
                 SU        = $node.numUnits
-                SizeTiB   = $node.numUnits * 64 * 0.001
+                SzTiB   = [math]::round(($node.numUnits * 64 /1024),2)
                 Synced    = $node.synced
                 Layer     = $node.syncedLayer
                 Top       = $node.topLayer
                 Verified  = $node.verifiedLayer
                 Version   = $node.version
                 Smeshing  = $node.smeshing
+		Rewards   = $node.rewards
+		FProof     = $node.findproof
+		Registered       = $node.reg
             } 
             $object += $o
+	    $totalsu = $totalsu + $node.numUnits
+	    $totalrw = $totalrw + $node.rewards
         }
 
         Clear-Host
-        $object | Select-Object Info, SmesherID, Host, Port, Peers, SU, SizeTiB, Synced, Layer, Top, Verified, Version, Smeshing | ColorizeMyObject -ColumnRules $columnRules
-        Write-Host `n
-        Write-Host "-------------------------------------- Info: -----------------------------------" -ForegroundColor Yellow
-        Write-Host "Current Epoch: " -ForegroundColor Cyan -nonewline; Write-Host $epoch.number -ForegroundColor Green
+	if ($NextProofingWindowStarts -lt $CurrentDate){$NextProofingWindowStarts = $NextProofingWindowStarts.AddDays(14)}
+	if ($NextSubmitATX -lt $CurrentDate){$NextSubmitATX = $NextSubmitATX.AddDays(14)}
+	$object | Select-Object Info, SID, Port, PRs, SU, SzTiB, Synced, Layer, Top, Verified, Version, Smeshing, Rewards, FProof, Registered | ColorizeMyObject -ColumnRules $columnRules
+        #Write-Host `n
+        Write-Host "----------------------------------------- Info: --------------------------------------" -ForegroundColor Yellow
+        Write-Host "         Current Epoch: " -ForegroundColor Cyan -nonewline; Write-Host $epoch.number -ForegroundColor Green
         if ($null -ne $resultsNodeHighestATX) {
-            Write-Host "  Highest ATX: " -ForegroundColor Cyan -nonewline; Write-Host (B64_to_Hex -id2convert $resultsNodeHighestATX.id.id) -ForegroundColor Green
+        Write-Host "           Highest ATX: " -ForegroundColor Cyan -nonewline; Write-Host (B64_to_Hex -id2convert $resultsNodeHighestATX.id.id) -ForegroundColor Green
         }
-        Write-Host "ATX Base64_ID: " -ForegroundColor Cyan -nonewline; Write-Host $resultsNodeHighestATX.id.id -ForegroundColor Green
+        Write-Host "         ATX Base64_ID: " -ForegroundColor Cyan -nonewline; Write-Host $resultsNodeHighestATX.id.id -ForegroundColor Green
+	Write-Host "         Total SizeTiB: " -ForegroundColor Cyan -nonewline; Write-Host ([math]::round(($totalsu * 64 /1024),2)) -ForegroundColor Green -nonewline; Write-Host " TiB"
+	Write-Host "              Total SU: " -ForegroundColor Cyan -nonewline; Write-Host ($totalsu) -ForegroundColor Green -nonewline; Write-Host " SUs"
+	Write-Host "         Total Rewards: " -ForegroundColor Cyan -nonewline; Write-Host ($totalrw) -ForegroundColor Green -nonewline; Write-Host " Layers"
+	Write-Host "  Next Proofing Window: " -ForegroundColor Cyan -nonewline; Write-Host $NextProofingWindowStarts -ForegroundColor Green;
+	Write-Host "Next ATX Submit Window: " -ForegroundColor Cyan -nonewline; Write-Host $NextSubmitATX -ForegroundColor Green;
         #Write-Host "        Layer: " -ForegroundColor Cyan -nonewline; Write-Host $resultsNodeHighestATX.layer.number -ForegroundColor Green
         #Write-Host "     NumUnits: " -ForegroundColor Cyan -nonewline; Write-Host $resultsNodeHighestATX.numUnits -ForegroundColor Green
         #Write-Host "      PrevATX: " -ForegroundColor Cyan -nonewline; Write-Host $resultsNodeHighestATX.prevAtx.id -ForegroundColor Green
         #Write-Host "    SmesherID: " -ForegroundColor Cyan -nonewline; Write-Host $resultsNodeHighestATX.smesherId.id -ForegroundColor Green
-        Write-Host "--------------------------------------------------------------------------------" -ForegroundColor Yellow
+        Write-Host "--------------------------------------------------------------------------------------" -ForegroundColor Yellow
         Write-Host `n
         $newline = "`r`n"
     
@@ -191,62 +237,45 @@ function main {
                 }
             }
         }
-		
-		
-        if ("Offline" -in $object.synced) {
+        if ($object.synced -match "Offline") {
             Write-Host "Info:" -ForegroundColor White -nonewline; Write-Host " --> Some of your nodes are Offline!" -ForegroundColor DarkYellow
-            if ($emailEnable -eq "True" -And (isValidEmail($myEmail))) {
-                $Body = "Warning, some nodes are offline!"
-
-                foreach ($node in $list) {
-                    if (!$node.online) {
-                        $Body = $body + $newLine + $node.Info + " " + $node.Host + " " + $node.Smeshing 
-                        if (!$node.emailsent) {
-                            $OKtoSend = "True"
-                            $node.emailsent = "True"
-                        }
-                    }
-                }
-				
-                if ($OKtoSend) {
-                    $From = "001smmonitor@gmail.com"
-                    $To = $myEmail
-                    $Subject = "Your Spacemesh node is offline"
-			
-                    # Define the SMTP server details
-                    $SMTPServer = "smtp.gmail.com"
-                    $SMTPPort = 587
-                    $SMTPUsername = "001smmonitor@gmail.com"
-                    $SMTPPassword = "uehd zqix qrbh gejb"
-
-                    # Create a new email object
-                    $Email = New-Object System.Net.Mail.MailMessage
-                    $Email.From = $From
-                    $Email.To.Add($To)
-                    $Email.Subject = $Subject
-                    $Email.Body = $Body
-                    # Uncomment below to send HTML formatted email
-                    #$Email.IsBodyHTML = $true
-
-                    # Create an SMTP client object and send the email
-                    $SMTPClient = New-Object System.Net.Mail.SmtpClient($SMTPServer, $SMTPPort)
-                    $SMTPClient.EnableSsl = $true
-                    $SMTPClient.Credentials = New-Object System.Net.NetworkCredential($SMTPUsername, $SMTPPassword)
-			
-                    Try {
-                        $SMTPClient.Send($Email)
-                    }
-                    Catch {
-                        Write-Host "oops! SMTP error, please check your settings." -ForegroundColor DarkRed
-                    }
-                    Finally {
-                        Write-Host "Email sent..." -ForegroundColor DarkYellow
-                        $OKtoSend = ""
-                    }
-                }
+            if ($emailEnable -eq "True"){
+            Write-Host "Email sent..." -ForegroundColor DarkYellow
+            [array]$offlineNodes += $object | Where-Object { $_.synced -match "Offline" }
+            $From = ""
+            $To = $myEmail
+            $Subject = "Node offline alert!"
+            $Body = "Warning, some nodes are offline!"
+            foreach ($item in $offlineNodes) {
+                $Body = $body + $newLine + $item.Info + " " + $item.Host + " " + $item.Smeshing 
             }
-        }
+    
+            # Define the SMTP server details
+            $SMTPServer = ""
+            $SMTPPort = 25
+            $SMTPUsername = ""
+            $SMTPPassword = ""
 
+            # Create a new email object
+            $Email = New-Object System.Net.Mail.MailMessage
+            $Email.From = $From
+            $Email.To.Add($To)
+            $Email.Subject = $Subject
+            $Email.Body = $Body
+            # Uncomment below to send HTML formatted email
+            #$Email.IsBodyHTML = $true
+
+            # Create an SMTP client object and send the email
+            $SMTPClient = New-Object System.Net.Mail.SmtpClient($SMTPServer, $SMTPPort)
+            $SMTPClient.EnableSsl = $false
+            $SMTPClient.Credentials = New-Object System.Net.NetworkCredential($SMTPUsername, $SMTPPassword)
+            $SMTPClient.Send($Email)
+            
+        }
+    }
+
+        
+        
         $currentDate = Get-Date -Format HH:mm:ss
         #Refresh
         Write-Host `n                
@@ -256,7 +285,7 @@ function main {
         $originalPosition = $host.UI.RawUI.CursorPosition
         for ($s = 0; $s -le 60; $s++) {
             Write-Host -NoNewline "." -ForegroundColor Cyan
-            Start-Sleep 5
+            Start-Sleep 10
         }	
         $clearmsg = " " * ([System.Console]::WindowWidth - 1)  
         [Console]::SetCursorPosition($originalPosition.X, $originalPosition.Y)
@@ -266,21 +295,7 @@ function main {
     }
 }
 
-function IsValidEmail { 
-    param([string]$Email)
-    $Regex = '^([\w-\.]+)@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.)|(([\w-]+\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\]?)$'
 
-    try {
-        $obj = [mailaddress]$Email
-        if ($obj.Address -match $Regex) {
-            return $True
-        }
-        return $False
-    }
-    catch {
-        return $False
-    } 
-}
 
 function B64_to_Hex {
     param (
